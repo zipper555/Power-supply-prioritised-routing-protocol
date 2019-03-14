@@ -1,79 +1,53 @@
+
 Packet Format:
 
-typedef struct {
-uint8_t msg_type; // Intial broadcast, rebroadcasting, sensed_val, spl_brdcst
-uint8_t node_id; // node id of the sender. 
-uint8_t priority; // Identifies Fixed nodes, User nodes and Battery nodes.
-uint8_t src; //indicates the origin of the message.
-uint8_t sensor_val; // read only if msg_type is sensed_val
-uint8_t battery_val; // To monitor Battery level of each node
-uint8_t spl_brdcst_reply; // reply to special broadcast requests - no. hops to coord, valid only if msg_type is spl_brdcst
-linkaddr_t dest; // indicates the next immediate destination, valid only for msg type sensed_val; however, end destination of all sensed_val msgs are coordinator.
-}
+MSG_TYPE | NODE_ID | PRIORITY | SOURCE | SENSOR_VAL | BATTERY_VAL | SPL_BRDCST_REPLY | DEST
 
-***********
-TO DO:
-See if uint8_t can be converted into an array so that all nodes populate the array with their addresses.
-***********
+1) MSG_TYPE: Indicates Message Type of arriving packet. Message Types used by the protocol are as follows.
+a) MSG_INIT_BRDCST: To refer to initial broadcast packet. The same Message Type is preserved through rebroadcasts also, so that receiving nodes can identify that the message is intended for routing table population.
+b) MSG_SENSOR_VAL: Indicates that the packet contains a sensed value from the node indicated by SOURCE field of the packet.
+c) MSG_SPL_BROADCAST: Indicates that the message is a special broadcast message raised by a battery node due to its unreachability. This is responded to by other battery nodes in the vicinity.
 
-Initial table population begins from coordinator node with msg_type initial broadcast = 0x01
+2) NODE_ID: Indicates the node id of the sender. While generating the packet, each node populates this field with its own node id and sends it over to the next hop.
 
-Routing Table:
+3) PRIORITY: Indicates the priority of the sending node. While generating the packet, each node populates this field with its own priority value and sends it over to the next hop. Following are the priority values. 0 for Coordinator, 1 for Fixed node, 2 for Battery node and 3 for Battery node. Higher the value lesser is the priority for packet forwarding.
 
-typedef struct
-{
-	linkaddr_t 	dest; // This is always the coordinator in our case
-	linkaddr_t 	next_hop;	// Best choice for next hop		
-	uint8_t 	priority; 
-	bool expired; // Set a timer to turn this flag to TRUE after a stipulated time.
-}r_table;
+4) SOURCE: Indicates origin of the packet for messages of type MSG_SENSOR_VAL. This is used by the Coordinator to distinguish between sensor values of different nodes.
 
-While populating the routing table we compare the priority of the broadcast with the priority of the routing table entry. We repopulate under two conditions:
-	a) If the existing priority is lesser than the received priority.
-	b) If the expired flag is TRUE.
+5) SENSOR_VAL: Indicates the value obtained from the sensor attached to the node.
 
-Algo:
-Receive a packet—
-1) If the Node is itself coordinator
-	a) Start Initial broadcast.
-	b) Just print the received values.
-2) If the Node is Fixed supply:
-	a) If Initial broadcast - populate routing table and then rebroadcast with priority 1.
-	b) If rebroadcast - populate routing table and rebroadcast with priority 1.
-	c) If sensed_val - forward it to coordinator or any other node closer to coordinator.
-3) If the Node is User node:
-	a) If Initial broadcast - populate routing table and then rebroadcast with priority 2.
-	b) If rebroadcast - populate routing table and rebroadcast with priority 2.
-	c) If sensed_val -  forward it to coordinator or any other node closer to coordinator.
-4) If the Node is Battery node:
-	a) If Initial broadcast - populate routing table.
-	b) If rebroadcast - populate routing table.
-	c) If sensed_val -  forward it to coordinator or any other node closer to coordinator.
-	d) If there is a value to send but routing table is empty, then initiate a spl_brdcst.
-	
-***************
-Changes while porting code from simulator to hardware:
+6) BATTERY_VAL: Indicates the battery level of the node from where packet was originated, indicated by SOURCE.
 
-rimeaddr to linkaddr
-change uint8_t to uint16_t - battery_val;
-While uploading use IDs like to 0x0100.
-Include header files.
-Change interval values in #define.
-****************************************
-Upload:
+7) SPL_BRDCST_REPLY: This field indicates a reply received for the special broadcast scenario initiated by Battery nodes.
 
-make TARGET=zoul BOARD=remote-revb NODEID=0x0100 coordinator.upload
-make TARGET=zoul BOARD=remote-revb NODEID=0x0200 fixednode.upload
-make TARGET=zoul BOARD=remote-revb NODEID=0x0400 usernode.upload
-make TARGET=zoul BOARD=remote-revb NODEID=0x0500 batterynode.upload
+8) DEST: Indicates the final destination which the packet is intended to reach.
 
-**************************************
+Routing Table format:
 
-Note for QT Compilation:
+DEST | NEXT_HOP | PRIORITY | EXPIRED
+			
 
-Comment Line no. 51 in build-TeamProject-Desktop-Debug/moc_graphwidget.cpp
-51: case 0: _t->shuffle(); break;  <-- Comment this.
+1) DEST: Indicates the final destination to be reached. In this case it is always the Coordinator.
+2) NEXT_HOP: Indicates the next hop that a packet should be sent to, so that it finally reaches the Coordinator.
+3) PRIORITY: Priority of the node indicated by NEXT_HOP.
+4) EXPIRED: Indicates if the routing table is valid or not. This field is set to true if there are no routing table updates in a defined interval. When this field is true, the routing table is re updated with the information gathered from init broadcast message.
 
-**********************************************
+Protocol operation:
+
+Route discovery:
+1) Coordinator sends a broadcast message with Message Type MSG_INIT_BRDCST.
+2) All the nodes that can hear the init broadcast message directly from Coordinator, populate NEXT_HOP field in their routing table to be Coordinator.
+3) Only the Fixed nodes and User nodes rebroadcast the init broadcast message. 
+4) The nodes hearing the rebroadcast populate the routing table with the NEXT_HOP to be the sender of init broadcast. This way, they are assured that the NEXT_HOP can take the message to the Coordinator. The routing table update happens under two circumstances. 
+a) If the Routing table has expired. 
+b) If the current NEXT_HOP’s priority is lower than that of the node from which init broadcast is received. That is, if a node with higher priority is reachable.
+5) The process continues until all the nodes have received an init broadcast message either directly from the Coordinator or from any of the Fixed or User node and routing table’s NEXT_HOP is populated.
+6) The values are collected from the sensors at regular intervals. Collected data is sent to the Coordinator as a unicast message through NEXT_HOP indicated in the routing table. Message type MSG_SENSOR_VAL is used for this purpose.
+
+Special broadcast scenario: Consider a scenario where a node is not in the vicinity of any Fixed node or User node. Under this condition, it won’t receive any init broadcast message and hence the NEXT_HOP in the routing table would remain unpopulated or expired. Only in this special case, Battery nodes are considered for packet forwarding. The node that is unreachable by init broadcasts then can raise a special broadcast request using Message Type  MSG_SPL_BROADCAST. Any Battery node that receives it responds to this Message Type and replies to the unreachable node by setting the field SPL_BRDCST_REPLY.  Upon receiving the special broadcast reply, the unreachable node populates the NEXT_HOP of routing table to be the Battery node that it received special broadcast reply from. It then uses this NEXT_HOP to send the sensed values to Coordinator.
+
+Failure recovery mechanism:
+The Coordinator keeps sending init broadcast messages at regular intervals. This is followed by the rebroadcasts at Fixed and user nodes. The route populated at the nodes using the init broadcast message is only valid for a certain interval. After which, the table is updated with the latest init broadcast message. This way, even if the current NEXT_HOP node goes out of network, the nodes choose the new NEXT_HOP by hearing to the next init broadcast message.
+
 
 
