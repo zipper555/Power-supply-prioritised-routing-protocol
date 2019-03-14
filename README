@@ -1,0 +1,79 @@
+Packet Format:
+
+typedef struct {
+uint8_t msg_type; // Intial broadcast, rebroadcasting, sensed_val, spl_brdcst
+uint8_t node_id; // node id of the sender. 
+uint8_t priority; // Identifies Fixed nodes, User nodes and Battery nodes.
+uint8_t src; //indicates the origin of the message.
+uint8_t sensor_val; // read only if msg_type is sensed_val
+uint8_t battery_val; // To monitor Battery level of each node
+uint8_t spl_brdcst_reply; // reply to special broadcast requests - no. hops to coord, valid only if msg_type is spl_brdcst
+linkaddr_t dest; // indicates the next immediate destination, valid only for msg type sensed_val; however, end destination of all sensed_val msgs are coordinator.
+}
+
+***********
+TO DO:
+See if uint8_t can be converted into an array so that all nodes populate the array with their addresses.
+***********
+
+Initial table population begins from coordinator node with msg_type initial broadcast = 0x01
+
+Routing Table:
+
+typedef struct
+{
+	linkaddr_t 	dest; // This is always the coordinator in our case
+	linkaddr_t 	next_hop;	// Best choice for next hop		
+	uint8_t 	priority; 
+	bool expired; // Set a timer to turn this flag to TRUE after a stipulated time.
+}r_table;
+
+While populating the routing table we compare the priority of the broadcast with the priority of the routing table entry. We repopulate under two conditions:
+	a) If the existing priority is lesser than the received priority.
+	b) If the expired flag is TRUE.
+
+Algo:
+Receive a packet—
+1) If the Node is itself coordinator
+	a) Start Initial broadcast.
+	b) Just print the received values.
+2) If the Node is Fixed supply:
+	a) If Initial broadcast - populate routing table and then rebroadcast with priority 1.
+	b) If rebroadcast - populate routing table and rebroadcast with priority 1.
+	c) If sensed_val - forward it to coordinator or any other node closer to coordinator.
+3) If the Node is User node:
+	a) If Initial broadcast - populate routing table and then rebroadcast with priority 2.
+	b) If rebroadcast - populate routing table and rebroadcast with priority 2.
+	c) If sensed_val -  forward it to coordinator or any other node closer to coordinator.
+4) If the Node is Battery node:
+	a) If Initial broadcast - populate routing table.
+	b) If rebroadcast - populate routing table.
+	c) If sensed_val -  forward it to coordinator or any other node closer to coordinator.
+	d) If there is a value to send but routing table is empty, then initiate a spl_brdcst.
+	
+***************
+Changes while porting code from simulator to hardware:
+
+rimeaddr to linkaddr
+change uint8_t to uint16_t - battery_val;
+While uploading use IDs like to 0x0100.
+Include header files.
+Change interval values in #define.
+****************************************
+Upload:
+
+make TARGET=zoul BOARD=remote-revb NODEID=0x0100 coordinator.upload
+make TARGET=zoul BOARD=remote-revb NODEID=0x0200 fixednode.upload
+make TARGET=zoul BOARD=remote-revb NODEID=0x0400 usernode.upload
+make TARGET=zoul BOARD=remote-revb NODEID=0x0500 batterynode.upload
+
+**************************************
+
+Note for QT Compilation:
+
+Comment Line no. 51 in build-TeamProject-Desktop-Debug/moc_graphwidget.cpp
+51: case 0: _t->shuffle(); break;  <-- Comment this.
+
+**********************************************
+
+
