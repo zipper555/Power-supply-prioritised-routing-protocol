@@ -191,9 +191,6 @@ static void unicast_recv(struct unicast_conn *c, const linkaddr_t *from)
   packetbuf_copyto(&rx_packet_uc);
   print_received_packet(rx_packet_uc);
 
-  /* We have two message types, UNICAST_TYPE_PING and
-     UNICAST_TYPE_PONG. If we receive a UNICAST_TYPE_PING message, we
-     print out a message and return a UNICAST_TYPE_PONG. */
   if(rx_packet_uc.msg_type == MSG_SENSOR_VAL) {
     printf("unicast msg received from %d.%d\n",
            from->u8[0], from->u8[1]);
@@ -254,25 +251,7 @@ PROCESS_THREAD(homeauto_batterynode_process, ev, data)
 
 	while(1) //MAIN LOOP
 	{
-		/*
-		if (REBRDCST) {
-			// Set values for initial broadcast msg_type
-			set_init_brdcst_param();
-		
-			leds_on(LEDS_RED);
-			//Copy the content of tx_contacts to the buffer.
-			
-			packetbuf_copyfrom(&tx_packet, sizeof(packet));
-			//printf("\n Printing packetbuf soon after copying struct\n");
-			//printf("%s\n", packetbuf_dataptr());
-
-			broadcast_send(&broadcast);
-			leds_off(LEDS_RED);
-			printf("PACKET SENT FROM USER NODE Rime addr: 0x%x%x\n", 				linkaddr_node_addr.u8[0], linkaddr_node_addr.u8[1]);
-			REBRDCST = 0x00;
-			INITBRDCST_COMPLETE = 0x01;
-		}
-		*/
+		/* No rebroadcasting for Battery nodes */
 		if (ev == SPL_BRDCST) {
 				//printf("SPL BROADCAST event received\n");
 				generate_spl_brdcst_tx_packet(SPL_BRDCST_REQUEST);
